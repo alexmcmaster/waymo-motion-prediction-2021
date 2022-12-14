@@ -77,6 +77,12 @@ def parse_args():
         default=1000,
         help="Validate model each `n-validate` steps",
     )
+    parser.add_argument(
+        "--load-path",
+        required=False,
+        default=None,
+        help="Start training from a checkpoint",
+    )
 
     args = parser.parse_args()
 
@@ -206,6 +212,10 @@ def main():
     if not os.path.exists(path_to_save):
         os.mkdir(path_to_save)
 
+    loaded_state = None
+    if args.load_path is not None:
+        loaded_state = torch.load(args.load_path)
+
     dataset = WaymoLoader(train_path)
 
     batch_size = args.batch_size
@@ -235,10 +245,14 @@ def main():
     model = Model(
         model_name, in_channels=args.in_channels, time_limit=time_limit, n_traj=n_traj
     )
+    if loaded_state is not None:
+        model.load_state_dict(loaded_state["model_state_dict"])
     model.cuda()
 
     lr = args.lr
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
+    if loaded_state is not None:
+        optimizer.load_state_dict(loaded_state["optimizer_state_dict"])
 
     scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
         optimizer,
@@ -247,9 +261,15 @@ def main():
         eta_min=max(1e-2 * lr, 1e-6),
         last_epoch=-1,
     )
+    if loaded_state is not None:
+        scheduler.load_state_dict(loaded_state["scheduler_state_dict"])
 
     start_iter = 0
+    if loaded_state is not None:
+        start_iter = loaded_state["iteration"]
     best_loss = float("+inf")
+    if loaded_state is not None:
+        best_loss = loaded_state["score"]
     glosses = []
 
     tr_it = iter(dataloader)
