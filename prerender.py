@@ -1,11 +1,12 @@
 import argparse
 import multiprocessing
 import os
+import time
 
 import cv2
 import numpy as np
-import tensorflow as tf
 from tqdm import tqdm
+import tensorflow as tf
 
 roadgraph_features = {
     "roadgraph_samples/dir": tf.io.FixedLenFeature(
@@ -176,6 +177,8 @@ MAX_PIXEL_VALUE = 255
 N_ROADS = 21
 road_colors = [int(x) for x in np.linspace(1, MAX_PIXEL_VALUE, N_ROADS).astype("uint8")]
 idx2type = ["unset", "vehicle", "pedestrian", "cyclist", "other"]
+
+del tf
 
 
 def parse_arguments():
@@ -600,7 +603,15 @@ def vectorize(
 
             ROADLINES_STATE.append(tmp)
 
-    ROADLINES_STATE = make_2d(ROADLINES_STATE)
+    try:
+        ROADLINES_STATE = make_2d(ROADLINES_STATE)
+    except IndexError as err:
+        print(err)
+        print(ROADLINES_STATE)
+        print(unique_road_ids)
+        print(Roadline_id)
+        print(GLOBAL_IDX)
+        return GRES
 
     for (
         agent_id,
@@ -789,16 +800,52 @@ def merge(
 
     for i in range(len(raster_data)):
         if use_vectorize:
-            raster_data[i]["vector_data"] = vector_data[i].astype(np.float16)
+            try:
+                raster_data[i]["vector_data"] = vector_data[i].astype(np.float16)
+            except IndexError as err:
+                print(err)
+                print(f"{i} {len(raster_data)} {len(vector_data)}")
+                continue
 
         r = np.random.randint(max_rand_int)
         filename = f"{idx2type[int(raster_data[i]['self_type'])]}_{proc_id}_{str(i).zfill(5)}_{r}.npz"
         np.savez_compressed(os.path.join(out_dir, filename), **raster_data[i])
 
 
+def tf_set_memory_growth(state=True):
+    gpus = tf.config.list_physical_devices('GPU')
+    if gpus:
+      try:
+        # Currently, memory growth needs to be the same across GPUs
+        for gpu in gpus:
+          tf.config.experimental.set_memory_growth(gpu, state)
+        logical_gpus = tf.config.list_logical_devices('GPU')
+        print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+      except RuntimeError as e:
+        # Memory growth must be set before GPUs have been initialized
+        print(e)
+
+
+def tf_limit_memory_usage(limit_mb=1024):
+    gpus = tf.config.list_physical_devices('GPU')
+    if gpus:
+      # Restrict TensorFlow to only allocate 1GB of memory on the first GPU
+      try:
+        tf.config.set_logical_device_configuration(
+            gpus[0],
+            [tf.config.LogicalDeviceConfiguration(memory_limit=limit_mb)])
+        logical_gpus = tf.config.list_logical_devices('GPU')
+        print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+      except RuntimeError as e:
+        # Virtual devices must be set before GPUs have been initialized
+        print(e)
+
+
 def main():
     args = parse_arguments()
     print(args)
+
+    os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
 
     if not os.path.exists(args.out):
         os.mkdir(args.out)
@@ -810,27 +857,36 @@ def main():
     if args.n_shards > 1:
         dataset = dataset.shard(args.n_shards, args.each)
 
-    p = multiprocessing.Pool(args.n_jobs)
+    #tf_limit_memory_usage(1024)
+
     proc_id = 0
+    if args.n_jobs > 1:
+        p = multiprocessing.Pool(args.n_jobs)
     res = []
     for data in tqdm(dataset.as_numpy_iterator()):
         proc_id += 1
-        res.append(
-            p.apply_async(
-                merge,
-                kwds=dict(
-                    data=data,
-                    proc_id=proc_id,
-                    validate=not args.no_valid,
-                    out_dir=args.out,
-                    use_vectorize=args.use_vectorize,
-                ),
+        if args.n_jobs > 1:
+            res.append(
+                p.apply_async(
+                    merge,
+                    kwds=dict(
+                        data=data,
+                        proc_id=proc_id,
+                        validate=not args.no_valid,
+                        out_dir=args.out,
+                        use_vectorize=args.use_vectorize,
+                    ),
+                )
             )
-        )
+        else:
+            res.append(merge(data=data, proc_id=proc_id, validate=not args.no_valid,
+                             out_dir=args.out, use_vectorize=args.use_vectorize))
 
-    for r in tqdm(res):
-        r.get()
+    if args.n_jobs > 1:
+        for r in tqdm(res):
+            r.get()
 
 
 if __name__ == "__main__":
+    import tensorflow as tf
     main()
