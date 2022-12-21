@@ -1,6 +1,6 @@
 import argparse
 
-# chage this if you have problem
+# change this if you have problem
 import sys
 sys.path.insert(1, "~/.local/lib/python3.6/site-packages")
 
@@ -32,8 +32,8 @@ def parse_args():
         "--model-name", type=str, required=False, help="Model name"
     )
 
-    parser.add_argument("--account-name", required=False, default="")
-    parser.add_argument("--authors", required=False, default="")
+    parser.add_argument("--account-name", required=False, default="alex.r.mcmaster@gmail.com")
+    parser.add_argument("--authors", required=False, default="Alex McMaster, Lars Ullrich")
     parser.add_argument("--method-name", required=False, default="SimpleCNNOnRaster")
 
     parser.add_argument("--batch-size", type=int, required=False, default=128)
