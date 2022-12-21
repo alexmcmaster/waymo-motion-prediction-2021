@@ -47,6 +47,8 @@ def main():
     args = parse_args()
     print(args)
 
+    torch.multiprocessing.set_sharing_strategy("file_system")
+
     if args.model_path.endswith("pth"):
         model = Model(args.model_name)
         model.load_state_dict(torch.load(args.model_path)["model_state_dict"])
