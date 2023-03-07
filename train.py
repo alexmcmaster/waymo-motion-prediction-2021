@@ -247,6 +247,9 @@ def main():
     )
     if loaded_state is not None:
         model.load_state_dict(loaded_state["model_state_dict"])
+    print("Total parameters: {}".format(sum(p.numel() for p in model.parameters())))
+    print("Trainable parameters: {}".format(sum(p.numel() for p in model.parameters()
+                                                                if p.requires_grad)))
     model.cuda()
 
     lr = args.lr
