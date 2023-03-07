@@ -2,4 +2,4 @@
 .*.swo
 __pycache__
 viz/
-xception71/
+models/
